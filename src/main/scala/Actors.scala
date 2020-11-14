@@ -7,6 +7,7 @@ import Messages.StartMessage
 import Messages.StopAll
 import Messages.StopConsumerMessage
 import Messages.StopProducerMessage
+import MyVector.VectorWithLimit
 import akka.actor.typed.ActorRef
 import akka.actor.typed.ActorSystem
 import akka.actor.typed.Behavior
@@ -17,6 +18,8 @@ import pav.Pav
 import pav.Pav.PavPoints
 import pav.PavBin
 
+import scala.concurrent.ExecutionContext
+import scala.concurrent.Future
 import scala.reflect.ClassTag
 
 object Messages {
@@ -35,22 +38,35 @@ object Messages {
 
 object Producer {
 
-  def apply[A](numberOfMessagesToSend: Int, pointBuilder: () => A): Behavior[ProducerMessage] = Behaviors.receive { (context, message) =>
-    message match {
-      case StartMessage(sendTo) => {
+  def apply[A](numberOfMessagesToSend: Int, pointBuilder: () => A)(implicit ec: ExecutionContext): Behavior[ProducerMessage] = Behaviors.receive {
+    case (_, StartMessage(sendTo)) => {
+      Future {
         (1 to numberOfMessagesToSend) foreach { _ => sendTo ! NewPointMessage(pointBuilder()) }
-        Behaviors.same
       }
-      case StopProducerMessage => {
-        println("Producer shutdown...")
-        context.log.info("Producer shutdown...")
-        Behaviors.stopped
-      }
+      Behaviors.same
+    }
+    case (context, StopProducerMessage) => {
+      println("Producer shutdown...")
+      context.log.info("Producer shutdown...")
+      Behaviors.stopped
     }
   }
 }
 
-class DataVector[A: Ordering](maxSize: Int) {
+object MyVector {
+
+  implicit class VectorWithLimit[A](val self: Vector[A]) {
+
+    def append(a: A, maxSize: Int): Vector[A] = {
+      if (self.size < maxSize)
+        self :+ a
+      else
+        self
+    }
+  }
+}
+
+/*class DataVector[A: Ordering](maxSize: Int) {
   var v: Vector[A] = Vector[A]()
 
   def append(a: A): Boolean = {
@@ -63,32 +79,36 @@ class DataVector[A: Ordering](maxSize: Int) {
   def sortedIt(): Iterator[A] = v.sorted.iterator
 
   def size: Int = v.size
-}
+}*/
 
 object Consumer {
 
   def apply[A: PavBin: Ordering: ClassTag](maxSize: Int): Behavior[ConsumerMessage] = {
-    newPointBehavior(new DataVector[A](maxSize))
+    newPointBehavior(Vector[A](), maxSize)
   }
 
-  private def newPointBehavior[A: PavBin: ClassTag](pointsVector: DataVector[A]): Behavior[ConsumerMessage] =
-    Behaviors.receive { (context, message) =>
-      message match {
-        case NewPointMessage(point: A) => {
-          pointsVector.append(point)
-          val pavPoints: PavPoints = Pav.regression(pointsVector.sortedIt)
-          println(pavPoints.size)
-          Behaviors.same
-        }
-        case StopConsumerMessage => {
-          context.log.info("Consumer shutdown...")
-          Behaviors.stopped { () => println("Cleaning up!") }
-        }
+  private def newPointBehavior[A: PavBin: ClassTag: Ordering](pointsVector: Vector[A], maxSize: Int): Behavior[ConsumerMessage] =
+    Behaviors.receive {
+      case (_, NewPointMessage(point: A)) => {
+        val newVector: Vector[A] = pointsVector.append(point, maxSize)
+        actionWithPoints(newVector)
+        newPointBehavior(newVector, maxSize)
+      }
+      case (context, StopConsumerMessage) => {
+        context.log.info("Consumer shutdown...")
+        Behaviors.stopped { () => println("Cleaning up!") }
       }
     }
+
+  private def actionWithPoints[A: PavBin: Ordering](pointsVector: Vector[A]) = {
+    val pavPoints: PavPoints = Pav.regression(pointsVector.sorted.iterator)
+    println(pavPoints.size)
+  }
 }
 
 object Main {
+
+  import scala.concurrent.ExecutionContext.Implicits.global
 
   def apply(): Behavior[MainMessage] =
     Behaviors.setup { context =>
@@ -96,17 +116,15 @@ object Main {
       val producerActor = context.spawn(Producer(numberOfMessagesToSend = 100000, pointBuilder = () => NewPoint.random()), "producer")
       val consumerActor = context.spawn(Consumer[NewPoint](maxSize = 100), "consumer", mailboxSelector)
 
-      Behaviors.receiveMessage { message =>
-        message match {
-          case InitMessage => {
-            producerActor ! StartMessage(consumerActor)
-            Behaviors.same
-          }
-          case StopAll => {
-            producerActor ! StopProducerMessage
-            consumerActor ! StopConsumerMessage
-            Behaviors.stopped
-          }
+      Behaviors.receiveMessage {
+        case InitMessage => {
+          producerActor ! StartMessage(consumerActor)
+          Behaviors.same
+        }
+        case StopAll => {
+          producerActor ! StopProducerMessage
+          consumerActor ! StopConsumerMessage
+          Behaviors.stopped
         }
       }
     }
