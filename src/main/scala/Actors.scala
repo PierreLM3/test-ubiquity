@@ -7,12 +7,14 @@ import Messages.StartMessage
 import Messages.StopAll
 import Messages.StopConsumerMessage
 import Messages.StopProducerMessage
-import NewPoint.orderingInstance
-import Pav.PavPoints
+import pav.Pav.PavPoints
 import akka.actor.typed.ActorRef
 import akka.actor.typed.ActorSystem
 import akka.actor.typed.Behavior
+import akka.actor.typed.MailboxSelector
 import akka.actor.typed.scaladsl.Behaviors
+import pav.NewPoint
+import pav.Pav
 
 object Messages {
   sealed trait ProducerMessage
@@ -30,12 +32,10 @@ object Messages {
 
 object Producer {
 
-  def apply(): Behavior[ProducerMessage] = Behaviors.receive { (context, message) =>
+  def apply(numberOfMessagesToSend: Int): Behavior[ProducerMessage] = Behaviors.receive { (context, message) =>
     message match {
       case StartMessage(sendTo) => {
-        (1 to 1000) map { _ =>
-          sendTo ! NewPointMessage(NewPoint.random())
-        }
+        (1 to numberOfMessagesToSend) foreach { _ => sendTo ! NewPointMessage(NewPoint.random()) }
         Behaviors.same
       }
       case StopProducerMessage => {
@@ -47,41 +47,41 @@ object Producer {
   }
 }
 
-class DataVector(maxSize: Int){
-  var v: Vector[NewPoint] = Vector[NewPoint]()
+class DataVector[A: Ordering](maxSize: Int) {
+  var v: Vector[A] = Vector[A]()
 
-  def append(a: NewPoint) = {
+  def append(a: A): Boolean = {
     if (v.size < maxSize) {
       v = v :+ a
-    }
+      true
+    } else false
   }
 
-  def sortedIt(): Iterator[NewPoint] = v.sorted.iterator
+  def sortedIt(): Iterator[A] = v.sorted.iterator
+
+  def size: Int = v.size
 }
 
 object Consumer {
 
-  def apply(): Behavior[ConsumerMessage] = {
-    newPointBehavior(new DataVector(10))
+  def apply(maxSize: Int): Behavior[ConsumerMessage] = {
+    newPointBehavior(new DataVector(maxSize))
   }
 
-  private def newPointBehavior(points: DataVector): Behavior[ConsumerMessage] =
+  private def newPointBehavior(pointsVector: DataVector[NewPoint]): Behavior[ConsumerMessage] =
     Behaviors.receive { (context, message) =>
       message match {
         case NewPointMessage(point) => {
-          points.append(point)
-          val points1: PavPoints = Pav.regression[NewPoint](points.sortedIt)
-          println(points1.size)
+          pointsVector.append(point)
+          val pavPoints: PavPoints = Pav.regression[NewPoint](pointsVector.sortedIt)
+          println(pavPoints.size)
           Behaviors.same
         }
         case StopConsumerMessage => {
           context.log.info("Consumer shutdown...")
-          Behaviors.stopped { () =>
-            println("Cleaning up!")
-          }
+          Behaviors.stopped { () => println("Cleaning up!") }
         }
       }
-
     }
 }
 
@@ -89,8 +89,9 @@ object Main {
 
   def apply(): Behavior[MainMessage] =
     Behaviors.setup { context =>
-      val producerActor = context.spawn(Producer(), "producer")
-      val consumerActor = context.spawn(Consumer(), "consumer")
+      val mailboxSelector = MailboxSelector.fromConfig("my-app.my-mailbox")
+      val producerActor = context.spawn(Producer(numberOfMessagesToSend = 100000), "producer")
+      val consumerActor = context.spawn(Consumer(maxSize = 100), "consumer", mailboxSelector)
 
       Behaviors.receiveMessage { message =>
         message match {
@@ -108,6 +109,7 @@ object Main {
     }
 
   def main(args: Array[String]): Unit = {
+
     val system: ActorSystem[MainMessage] = ActorSystem(Main(), name = "actorSystem")
 
     system ! InitMessage

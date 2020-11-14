@@ -1,3 +1,4 @@
+package pav
 
 /** type class for a Bin, allowing to represent a mean y value for an given x range */
 trait PavBin[A] {
@@ -21,6 +22,7 @@ object PavBin {
   def apply[A](implicit bin: PavBin[A]): PavBin[A] = bin
 
   object syntax {
+
     implicit class PavBinOps[A](val self: A) extends AnyVal {
       def x1Value(implicit pavBin: PavBin[A]) = pavBin.x1Value(self)
       def x2Value(implicit pavBin: PavBin[A]) = pavBin.x2Value(self)

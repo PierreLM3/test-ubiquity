@@ -1,3 +1,5 @@
+package pav
+
 case class NewPoint(x: Double, y: Boolean)
 
 object NewPoint {
