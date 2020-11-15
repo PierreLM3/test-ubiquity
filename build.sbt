@@ -95,5 +95,6 @@ sources in (Compile, doc) := Seq.empty
 publishArtifact in (Compile, packageDoc) := false
 
 libraryDependencies ++= Seq(
-  "com.typesafe.akka" %% "akka-actor-typed" % "2.6.10"
+  "com.typesafe.akka" %% "akka-actor-typed" % "2.6.10",
+  "com.typesafe.akka" %% "akka-stream-typed" % "2.6.10"
 )

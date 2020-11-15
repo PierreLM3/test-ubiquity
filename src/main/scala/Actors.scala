@@ -8,11 +8,16 @@ import Messages.StopAll
 import Messages.StopConsumerMessage
 import Messages.StopProducerMessage
 import MyVector.VectorWithLimit
+import akka.NotUsed
 import akka.actor.typed.ActorRef
 import akka.actor.typed.ActorSystem
 import akka.actor.typed.Behavior
 import akka.actor.typed.MailboxSelector
+import akka.actor.typed.scaladsl.ActorContext
 import akka.actor.typed.scaladsl.Behaviors
+import akka.stream.scaladsl.Sink
+import akka.stream.scaladsl.Source
+import akka.stream.typed.scaladsl.ActorSink
 import pav.NewPoint
 import pav.Pav
 import pav.Pav.PavPoints
@@ -108,26 +113,36 @@ object Consumer {
 
 object Main {
 
-  import scala.concurrent.ExecutionContext.Implicits.global
-
   def apply(): Behavior[MainMessage] =
     Behaviors.setup { context =>
       val mailboxSelector = MailboxSelector.fromConfig("my-app.my-mailbox")
-      val producerActor = context.spawn(Producer(numberOfMessagesToSend = 100000, pointBuilder = () => NewPoint.random()), "producer")
+      //val producerActor = context.spawn(Producer(numberOfMessagesToSend = 100000, pointBuilder = () => NewPoint.random()), "producer")
       val consumerActor = context.spawn(Consumer[NewPoint](maxSize = 100), "consumer", mailboxSelector)
+
+      buildProducer(context, consumerActor)
 
       Behaviors.receiveMessage {
         case InitMessage => {
-          producerActor ! StartMessage(consumerActor)
+          //producerActor ! StartMessage(consumerActor)
           Behaviors.same
         }
         case StopAll => {
-          producerActor ! StopProducerMessage
+          //producerActor ! StopProducerMessage
           consumerActor ! StopConsumerMessage
           Behaviors.stopped
         }
       }
     }
+
+  private def buildProducer(context: ActorContext[MainMessage], consumerActor: ActorRef[ConsumerMessage]): Unit = {
+    implicit val materializer = context.system.classicSystem
+
+    val sink: Sink[ConsumerMessage, NotUsed] =
+      ActorSink.actorRef[ConsumerMessage](ref = consumerActor, onCompleteMessage = StopConsumerMessage, onFailureMessage = _ => StopConsumerMessage)
+
+    Source(1 to 10000).map(_ => NewPointMessage(NewPoint.random())).runWith(sink)
+    ()
+  }
 
   def main(args: Array[String]): Unit = {
 
