@@ -6,7 +6,6 @@ import akka.actor.typed.scaladsl.Behaviors
 import scala.concurrent.ExecutionContext
 import scala.concurrent.Future
 
-// Unused
 object Producer {
 
   sealed trait ProducerMessage

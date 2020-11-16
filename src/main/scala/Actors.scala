@@ -63,7 +63,9 @@ object Main {
       val mailboxSelector = MailboxSelector.fromConfig("my-app.my-mailbox")
       val consumerActor = context.spawn(Consumer[NewPoint](maxSize = 100), "consumer", mailboxSelector)
 
-      buildProducer(context, consumerActor)
+      def newPointFactory = () => NewPoint.random()
+
+      buildProducer(context, consumerActor, newPointFactory)
 
       Behaviors.receiveMessage {
         case StopAll => {
@@ -73,13 +75,13 @@ object Main {
       }
     }
 
-  private def buildProducer(context: ActorContext[MainMessage], consumerActor: ActorRef[ConsumerMessage]): Unit = {
+  private def buildProducer[A](context: ActorContext[MainMessage], consumerActor: ActorRef[ConsumerMessage], pointFactory: () => A): Unit = {
     implicit val materializer = context.system.classicSystem
 
     val sink: Sink[ConsumerMessage, NotUsed] =
       ActorSink.actorRef[ConsumerMessage](ref = consumerActor, onCompleteMessage = StopConsumerMessage, onFailureMessage = _ => StopConsumerMessage)
 
-    Source(1 to 10000).map(_ => NewPointMessage(NewPoint.random())).runWith(sink)
+    Source(1 to 10000).map(_ => NewPointMessage(pointFactory())).runWith(sink)
     ()
   }
 
