@@ -6,6 +6,7 @@ import akka.actor.typed.scaladsl.Behaviors
 import scala.concurrent.ExecutionContext
 import scala.concurrent.Future
 
+@deprecated(message = "Use buildProducer()", since = "0.0.1")
 object Producer {
 
   sealed trait ProducerMessage
