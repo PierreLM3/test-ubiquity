@@ -8,6 +8,9 @@ scalaVersion := "2.12.10"
 
 crossScalaVersions := Seq("2.11.12", "2.12.10")
 
+import ScalafmtPlugin.autoImport._
+test := { (test in Test) dependsOn scalafmtCheckAll }.value
+
 //scala flags are here to have cleaner code
 //some may be suppressed in specific cases
 
